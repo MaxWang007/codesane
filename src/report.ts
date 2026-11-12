@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import pc from "picocolors";
 import type { CodesaneReport, Finding, VerdictName } from "./types.js";
 
@@ -171,4 +172,52 @@ export function formatMarkdown(report: CodesaneReport): string {
 export function verdictOf(sane: boolean, error?: string): VerdictName {
   if (error) return "error";
   return sane ? "sane" : "not_sane";
+}
+
+/** Escape a value for a GitHub Actions workflow command (%, newlines, : ,). */
+export function escapeGitHubAnnotation(value: string): string {
+  return value
+    .replaceAll("%", "%25")
+    .replaceAll("\r", "%0D")
+    .replaceAll("\n", "%0A")
+    .replaceAll(":", "%3A")
+    .replaceAll(",", "%2C");
+}
+
+/**
+ * Workflow-command annotations so findings show up on the PR Files tab
+ * with a file and line, not only in the raw job log.
+ */
+export function formatGitHubAnnotations(report: CodesaneReport, tool = "codesane"): string {
+  const lines: string[] = [];
+  if (report.error) {
+    lines.push(`::error title=${escapeGitHubAnnotation(tool)}::${escapeGitHubAnnotation(report.error)}`);
+  }
+  for (const finding of report.findings) {
+    if (finding.allowed) continue;
+    const level = finding.severity === "warning" ? "warning" : "error";
+    const props: string[] = [];
+    if (finding.path) props.push(`file=${escapeGitHubAnnotation(finding.path)}`);
+    if (finding.line != null) props.push(`line=${finding.line}`);
+    props.push(`title=${escapeGitHubAnnotation(`${tool}: ${finding.rule}`)}`);
+    const text = finding.evidence ? `${finding.message}\n${finding.evidence}` : finding.message;
+    lines.push(`::${level} ${props.join(",")}::${escapeGitHubAnnotation(text)}`);
+  }
+  return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+}
+
+export function writeGitHubOutputs(
+  report: CodesaneReport,
+  env: NodeJS.ProcessEnv = process.env,
+  writeErr: (chunk: string) => void = (chunk) => {
+    process.stderr.write(chunk);
+  },
+): void {
+  if (env.GITHUB_ACTIONS !== "true") return;
+  const annotations = formatGitHubAnnotations(report);
+  if (annotations) writeErr(annotations);
+  const summary = env.GITHUB_STEP_SUMMARY;
+  if (summary) {
+    appendFileSync(summary, formatMarkdown(report));
+  }
 }

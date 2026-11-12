@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatReport, toJson } from "../src/report.js";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { formatGitHubAnnotations, formatReport, toJson, writeGitHubOutputs } from "../src/report.js";
 import type { CodesaneReport } from "../src/types.js";
 
 function sample(): CodesaneReport {
@@ -61,4 +64,40 @@ test("pretty report of a clean run says Findings none and verdict sane", () => {
   );
   assert.match(text, /Findings\s+none/);
   assert.match(text, /Verdict: sane\s+\(exit 0\)/);
+});
+
+test("GitHub annotations include file, line, and rule for each finding", () => {
+  const out = formatGitHubAnnotations(sample());
+  assert.match(out, /::error /);
+  assert.match(out, /file=src\/orders\.ts/);
+  assert.match(out, /line=14/);
+  assert.match(out, /title=codesane%3A swallow/);
+  assert.match(out, /Empty or no-op catch handler swallows errors/);
+  assert.doesNotMatch(out, /\n(?!$)/);
+});
+
+test("writeGitHubOutputs is a no-op outside GitHub Actions", () => {
+  const chunks: string[] = [];
+  writeGitHubOutputs(sample(), { GITHUB_ACTIONS: "false" }, (c) => chunks.push(c));
+  assert.deepEqual(chunks, []);
+});
+
+test("writeGitHubOutputs emits annotations and a step summary in Actions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "codesane-gha-"));
+  const summary = join(dir, "summary.md");
+  const chunks: string[] = [];
+  writeGitHubOutputs(
+    sample(),
+    { GITHUB_ACTIONS: "true", GITHUB_STEP_SUMMARY: summary },
+    (c) => chunks.push(c),
+  );
+  try {
+    assert.match(chunks.join(""), /::error /);
+    assert.match(chunks.join(""), /file=src\/orders\.ts/);
+    const md = readFileSync(summary, "utf8");
+    assert.match(md, /codesane report/);
+    assert.match(md, /src\/orders\.ts:14/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

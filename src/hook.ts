@@ -3,9 +3,37 @@ import { join } from "node:path";
 import { findGitRoot } from "./git.js";
 import { CodesaneError } from "./types.js";
 
-export const HOOK_MARKER = "# codesane-hook-v1 -- do not edit; installed by `codesane hook install`";
+/** Written into installed hooks. Older v1 hooks are still recognized and replaced. */
+export const HOOK_MARKER = "# codesane-hook-v2 -- do not edit; installed by `codesane hook install`";
 
 export type HookName = "pre-commit" | "pre-push";
+
+const ZERO_SHA = /^0+$/;
+
+export function isCodesaneHook(contents: string): boolean {
+  return /codesane-hook-v\d+/.test(contents);
+}
+
+/**
+ * Decide the git base an installed hook should pass to `codesane check`.
+ *
+ * pre-commit compares the worktree to HEAD (uncommitted changes).
+ * pre-push compares the commits being pushed to the remote tip supplied on
+ * stdin. An all-zero remote SHA means a new branch: leave `base` unset so
+ * codesane auto-detects the upstream default branch, instead of diffing
+ * against HEAD (which is a no-op once the worktree is clean).
+ */
+export function resolveHookBase(kind: HookName, stdin = ""): { base?: string } {
+  if (kind === "pre-commit") return { base: "HEAD" };
+  for (const raw of stdin.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split(/[ \t]+/);
+    const remoteSha = parts[3] ?? "";
+    if (remoteSha && !ZERO_SHA.test(remoteSha)) return { base: remoteSha };
+  }
+  return {};
+}
 
 function hookBody(kind: HookName): string {
   return `#!/bin/sh
@@ -14,11 +42,11 @@ ${HOOK_MARKER}
 set -e
 here=$(git rev-parse --show-toplevel)
 if command -v codesane >/dev/null 2>&1; then
-  exec codesane check --base HEAD
+  exec codesane hook run ${kind}
 elif [ -x "$here/node_modules/.bin/codesane" ]; then
-  exec "$here/node_modules/.bin/codesane" check --base HEAD
+  exec "$here/node_modules/.bin/codesane" hook run ${kind}
 else
-  exec npx --yes codesane check --base HEAD
+  exec npx --yes codesane hook run ${kind}
 fi
 `;
 }
@@ -29,10 +57,6 @@ function hooksDir(gitRoot: string): string {
 
 function hookPath(gitRoot: string, name: HookName): string {
   return join(hooksDir(gitRoot), name);
-}
-
-export function isCodesaneHook(contents: string): boolean {
-  return contents.includes("codesane-hook-v1");
 }
 
 export function installHooks(cwd: string, names: HookName[]): { installed: HookName[]; paths: string[] } {

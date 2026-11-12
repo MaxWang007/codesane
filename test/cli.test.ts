@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanupTemps, makeRepo, runCli, trackTemp } from "./helpers.js";
+import { cleanupTemps, git, makeRepo, runCli, trackTemp } from "./helpers.js";
 
 after(() => cleanupTemps());
 
@@ -112,15 +112,32 @@ test("explain unknown rule exits 2", () => {
   assert.match(result.stderr, /Unknown rule/);
 });
 
-test("hook install writes a hook that invokes codesane check --base HEAD", () => {
+test("hook install writes a v2 hook that delegates to codesane hook run", () => {
   const dir = trackTemp(makeRepo(before));
-  const result = runCli(["hook", "install", "--pre-commit"], dir);
+  const result = runCli(["hook", "install", "--pre-commit", "--pre-push"], dir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const hook = join(dir, ".git", "hooks", "pre-commit");
-  assert.ok(existsSync(hook));
-  const body = readFileSync(hook, "utf8");
-  assert.match(body, /codesane-hook-v1/);
-  assert.match(body, /codesane check --base HEAD/);
+  const preCommit = readFileSync(join(dir, ".git", "hooks", "pre-commit"), "utf8");
+  const prePush = readFileSync(join(dir, ".git", "hooks", "pre-push"), "utf8");
+  assert.match(preCommit, /codesane-hook-v2/);
+  assert.match(preCommit, /codesane hook run pre-commit/);
+  assert.match(prePush, /codesane hook run pre-push/);
+  assert.doesNotMatch(prePush, /--base HEAD/);
+});
+
+test("hook run pre-push diffs against the remote SHA, not HEAD", () => {
+  const dir = trackTemp(makeRepo(before, afterTree));
+  const shaBefore = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+  git(dir, ["add", "-A"]);
+  const committed = git(dir, ["commit", "-m", "agent emptied a catch"]);
+  assert.equal(committed.status, 0, committed.stderr);
+  const shaAfter = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+  const stdin = `refs/heads/main ${shaAfter} refs/heads/main ${shaBefore}\n`;
+  const headCheck = runCli(["check", dir, "--base", "HEAD"]);
+  assert.equal(headCheck.status, 0, headCheck.stderr || headCheck.stdout);
+  const result = runCli(["hook", "run", "pre-push"], dir, undefined, stdin);
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stdout, /swallow/);
+  assert.match(result.stdout, /Verdict: not sane/);
 });
 
 test("hook uninstall removes only codesane hooks", () => {
