@@ -1,0 +1,34 @@
+codesane  v0.1.0
+Don't ship a quiet weakening.
+
+Repo   /tmp/codesane-demo
+Base   HEAD
+
+Findings  5 errors
+
+  fail   unguarded     src/orders.ts:2
+        Removed requireAuth guard without a replacement in this diff
+        -  requireAuth(req);
+        +  // requireAuth(req);
+
+  fail   escape        src/orders.ts:4
+        Newly added type or lint escape (`as any`)
+        +    const rows = fetchOrders(req.user) as any;
+
+  fail   swallow       src/orders.ts:6
+        Empty or no-op catch handler swallows errors
+        -  } catch (err) {
+        -    console.error(err);
+        -    throw err;
+        -  }
+        +  } catch (err) {}
+
+  fail   loosen        src/orders.ts:10
+        Newly added security loosening (`rejectUnauthorized: false`)
+        +  return tls.connect({ url, rejectUnauthorized: false });
+
+  fail   stub          src/orders.ts:14
+        Unfinished work left in the diff (`not implemented`)
+        +  throw new Error('not implemented');
+
+Verdict: not sane  (exit 1)

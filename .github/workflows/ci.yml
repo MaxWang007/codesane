@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Pack and run the published CLI
+        run: |
+          tarball=$(npm pack --silent)
+          dest=$(mktemp -d)
+          ./examples/demo/setup.sh "$dest"
+          set +e
+          npx --yes "./$tarball" check "$dest" --base HEAD
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "expected packed CLI to exit 1 on the demo fixture, got $status"
+            exit 1
+          fi
+
+      - name: Dogfood codesane on this repo
+        run: node dist/cli.js check --base HEAD

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "codesane": {
+      "command": "npx",
+      "args": ["-y", "codesane", "mcp"]
+    }
+  }
+}
