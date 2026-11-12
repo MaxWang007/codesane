@@ -45,7 +45,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test",
     "prepublishOnly": "npm run typecheck && npm run lint && npm test && npm run build"
