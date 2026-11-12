@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { codesaneCheck } from "./index.js";
-import { formatReport } from "./report.js";
+import { formatReport, writeGitHubOutputs } from "./report.js";
 import { formatRuleDoc, RULES } from "./rules.js";
 import { RULE_IDS, CodesaneError, type RuleId } from "./types.js";
-import { installHooks, uninstallHooks, type HookName } from "./hook.js";
+import { installHooks, uninstallHooks, resolveHookBase, type HookName } from "./hook.js";
 import { startMcpServer } from "./mcp.js";
 
 function rewriteArgv(argv: string[]): string[] {
@@ -46,6 +47,7 @@ function buildProgram(): Command {
       });
       const color = format === "pretty" && !process.env.NO_COLOR && Boolean(process.stdout.isTTY);
       process.stdout.write(formatReport(report, format, color));
+      writeGitHubOutputs(report);
       process.exitCode = report.exitCode;
     });
 
@@ -63,7 +65,7 @@ function buildProgram(): Command {
   const hook = program.command("hook").description("Install or remove repo-local git hooks");
   hook
     .command("install")
-    .description("Install a pre-commit and/or pre-push hook that runs `codesane check --base HEAD`")
+    .description("Install a pre-commit and/or pre-push hook that runs `codesane hook run`")
     .option("--pre-commit", "install the pre-commit hook")
     .option("--pre-push", "install the pre-push hook")
     .action((opts: { preCommit?: boolean; prePush?: boolean }) => {
@@ -74,6 +76,28 @@ function buildProgram(): Command {
       const result = installHooks(process.cwd(), selected);
       process.stdout.write(`Installed ${result.installed.join(", ")} hook(s):\n`);
       for (const p of result.paths) process.stdout.write(`  ${p}\n`);
+    });
+  hook
+    .command("run")
+    .description("Run the check the way an installed hook would (pre-push reads refs from stdin)")
+    .argument("<hook>", "pre-commit or pre-push")
+    .action(async (name: string) => {
+      if (name !== "pre-commit" && name !== "pre-push") {
+        throw new CodesaneError("hook run expects pre-commit or pre-push");
+      }
+      let stdin = "";
+      if (name === "pre-push" && !process.stdin.isTTY) {
+        stdin = readFileSync(0, "utf8");
+      }
+      const resolved = resolveHookBase(name, stdin);
+      const report = await codesaneCheck({
+        cwd: process.cwd(),
+        base: resolved.base,
+      });
+      const color = !process.env.NO_COLOR && Boolean(process.stdout.isTTY);
+      process.stdout.write(formatReport(report, "pretty", color));
+      writeGitHubOutputs(report);
+      process.exitCode = report.exitCode;
     });
   hook
     .command("uninstall")

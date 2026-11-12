@@ -25,7 +25,20 @@ npx codesane mcp
 
 Add a stdio MCP server with `{ "command": "npx", "args": ["-y", "codesane", "mcp"] }` (see [examples/mcp.claude.json](examples/mcp.claude.json)) and tell the agent, or a parent reviewer, to call `codesane_check` before declaring done.
 
-A GitHub Action lives in this repo: `uses: MaxWang007/codesane@v0`. A ready-made workflow is in [examples/github-action.yml](examples/github-action.yml).
+## GitHub Action
+
+Copy [examples/github-action.yml](examples/github-action.yml) to `.github/workflows/codesane.yml`:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- uses: MaxWang007/codesane@v0
+  with:
+    base: ${{ github.event.pull_request.base.sha || github.event.before }}
+```
+
+`@v0` is the latest 0.x source tag of this repo. Findings show up as workflow annotations (file and line) and in the job summary, not only in the raw log. The action ignores an all-zero `base` — that is what GitHub sends as `github.event.before` on the first push of a branch — and falls back to codesane's auto-detected default branch.
 
 ## Quickstart
 
@@ -99,6 +112,8 @@ npx codesane check /tmp/codesane-demo --base HEAD
 ## What it does not do
 
 codesane is not a substitute for code review. It cannot see a weakening that was committed and then reverted before the hook ran. It does not use a model to judge whether a change is "weaker" in some subtle semantic sense — only deterministic diffs, so the same input always produces the same report. It does not re-run tests.
+
+The pre-commit hook diffs uncommitted changes against `HEAD`. The pre-push hook diffs the commits being pushed against the remote tip (or, on a new branch, the auto-detected default branch). A hook installed from an earlier snapshot always used `--base HEAD`, which misses already-committed weakenings at push time; run `npx codesane hook install --pre-push` again to replace a codesane hook.
 
 ## Config
 

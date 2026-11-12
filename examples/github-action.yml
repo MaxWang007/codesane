@@ -1,4 +1,8 @@
 # Drop this into .github/workflows/codesane.yml
+#
+# Findings appear as workflow annotations (file and line) and in the job
+# summary. An all-zero `base` (first push of a new branch) is ignored, and
+# codesane then auto-detects the default branch.
 name: codesane
 
 on:
@@ -15,4 +19,5 @@ jobs:
 
       - uses: MaxWang007/codesane@v0
         with:
+          # PR: diff against the PR base. Push: diff against the previous tip.
           base: ${{ github.event.pull_request.base.sha || github.event.before }}

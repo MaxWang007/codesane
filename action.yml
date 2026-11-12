@@ -6,7 +6,7 @@ branding:
   color: red
 inputs:
   base:
-    description: Git ref to diff against. Defaults to codesane's own auto-detection.
+    description: Git ref to diff against. Defaults to codesane's own auto-detection. All-zero SHAs (first push of a branch) are ignored.
     required: false
     default: ""
   fail-on-warning:
@@ -30,9 +30,12 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        cd "${GITHUB_WORKSPACE:-.}"
         args=(check --markdown)
-        if [ -n "${{ inputs.base }}" ]; then
-          args+=(--base "${{ inputs.base }}")
+        base="${{ inputs.base }}"
+        # github.event.before is 40 zeros on the first push of a branch.
+        if [ -n "$base" ] && [ -n "$(printf '%s' "$base" | tr -d '0')" ]; then
+          args+=(--base "$base")
         fi
         if [ "${{ inputs.fail-on-warning }}" = "true" ]; then
           args+=(--fail-on-warning)
